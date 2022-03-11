@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>電脳カメラ</title>
+<script>
+let canvas, context;
+let tempCanvas, tempContext, imageData;
+let video, cameraStream = null;
+let codes = new Array();
+let size, num;
+const [width, height] = [640, 360];
+
+// コードクラス
+class Code {
+    constructor() {
+        this.chars = new Array();
+        this.x = Math.random() * width; 
+        this.y = Math.random() * height;
+        this.speed = Math.random() * 5 + 2;
+        this.set();
+    }
+    set() {
+        // コード（複数文字）をセット
+        this.chars = [];
+        const n = Math.floor(Math.random() * 10) + 5;
+        const type = Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+            let [min, max] = [65, 90];
+            if (type == 1) {
+                // 数字
+                [min, max] = [48, 57];
+            } else if (type == 2) {
+                // 半角カタカナ
+                [min, max] = [65393, 65437];
+            }
+            let c = Math.floor(Math.random() * (max-min+1)) + min;
+            this.chars.push(String.fromCodePoint(c));
+        }
+    }
+    update() {
+        // 落下
+        this.y += this.speed;
+        if (this.y - this.chars.length * size > height) {
+            this.x = Math.random() * width;
+            this.y = 0;
+            this.set();
+        }
+        // 描画
+        let [x, y] = [Math.floor(this.x), Math.floor(this.y)];
+        const len = this.chars.length;
+        for (let i = 0; i < len; i++) {
+            let l = getLuminance(x, y - size*i) / 255 * 60 - 10;
+            l *= 1 + Math.random() * (len - i) / len;
+            if (i < 0) l = 0;
+            context.fillStyle = `hsl(130,100%,${Math.floor(l)}%)`;
+            context.fillText(this.chars[i], this.x, this.y - size*i);
+        }
+    }
+}
+
+const init = () => {
+    // キャンバス、ビデオの取得
+    canvas = document.getElementById("screen");
+    context = canvas.getContext("2d");
+    tempCanvas = document.getElementById("temp");
+    tempContext = tempCanvas.getContext("2d");
+    [canvas.width, canvas.height] = [width, height];
+    [tempCanvas.width, tempCanvas.height] = [width, height];
+    video = document.getElementById("video");
+    // 初期化
+    initCodes();
+    document.getElementById("disconnect").disabled = true;
+    update();
+}
+
+const initCodes = () => {
+    // コードの初期化
+    codes = [];
+    size = Number(document.getElementById("size").value);
+    num = Number(document.getElementById("num").value);
+    for (let i = 0; i < num; i++) {
+        codes.push(new Code());
+    }
+}
+
+const connectCamera = () => {
+    // カメラ接続（映像のみ：640×360）
+    const media = navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {width: {ideal: 640}, height: {ideal: 360}}
+    }).then(stream => {
+        // カメラからの映像をビデオにセット
+        video.srcObject = stream;
+        cameraStream = stream;
+        document.getElementById("connect").disabled = true;
+        document.getElementById("disconnect").disabled = false;
+    }).catch(error => {
+        // エラー
+        document.getElementById("message").innerText = error;
+    });
+}
+
+const disconnectCamera = () => {
+    // カメラ切断
+    cameraStream.getVideoTracks()[0].stop();
+    cameraStream = null;
+    document.getElementById("connect").disabled = false;
+    document.getElementById("disconnect").disabled = true;
+}
+
+const getLuminance = (x1, y1) => {
+    // 半角フォントサイズの平均の輝度を取得
+    let [r, b, g] = [0, 0, 0];
+    for (let x = x1; x < x1+size/2; x++) {
+        for (let y = y1; y < y1 + size; y++) {
+            if ((x >= 0) && (x < width) && (y >= 0) && (y < height)) {
+                const index = (y * width + x) * 4;
+                r += imageData.data[index];
+                g += imageData.data[index+1];
+                b += imageData.data[index+2];
+            }
+        }
+    }
+    return Math.floor((0.299 * r + 0.587 * g + 0.114 * b) / (size * size / 2));
+}
+
+const update = () => {
+    // 画像データを取得
+    if (cameraStream == null) {
+        // カメラ未接続
+        tempContext.fillStyle = "#666666";
+        tempContext.fillRect(0, 0, width, height);
+    } else {
+        // カメラ接続
+        tempContext.drawImage(video, 0, 0, width, height);
+    }
+    imageData = tempContext.getImageData(0, 0, width, height);
+    // コードの落下
+    context.fillStyle = "rgba(0,0,0,0.2)";
+    context.fillRect(0, 0, width, height);
+    context.font = `bold ${size}px monospace`;
+    context.textAlign = "left";
+    context.textBaseline = "top";
+    for (const code of codes) {
+        code.update();
+    }
+    window.requestAnimationFrame(update);
+}
+</script>
+<style>
+input[type="number"] {width: 50px;}
+#message {color: #FF0000;}
+#screen {background-color: #000000;}
+.hidden {display: none;}
+</style>
+</head>
+<body onload="init()">
+<p>電脳カメラ</p>
+フォントサイズ：
+<input type="number" id="size" value="12" onchange="initCodes()">
+コード数：
+<input type="number" id="num" value="300" step="50" onchange="initCodes()">
+｜カメラ：
+<input type="button" id="connect" value="接続" onclick="connectCamera()">
+<input type="button" id="disconnect" value="切断" onclick="disconnectCamera()">
+<span id="message"></span>
+<hr>
+<canvas id="screen"></canvas>
+<video id="video" autoplay class="hidden"></video>
+<canvas id="temp" class="hidden"></canvas>
+</body>
+</html>
